@@ -3,6 +3,60 @@
 
 #define PAGE_SIZE 4096
 
+#define UART0_BASE 0x09000000UL
+#define UART_DR    (*(volatile unsigned int *)(UART0_BASE + 0x00))
+#define UART_FR    (*(volatile unsigned int *)(UART0_BASE + 0x18))
+#define UART_FR_TXFF (1 << 5)  // Transmit FIFO full
+
+static inline void uart_putc(char c)
+{
+    while (UART_FR & UART_FR_TXFF) {
+        // 等待发送 FIFO 有空位
+    }
+    UART_DR = (unsigned int)c;
+}
+
+static inline void uart_puts(const char *s)
+{
+    while (*s) {
+        if (*s == '\n')
+            uart_putc('\r'); // 自动补 '\r'
+        uart_putc(*s++);
+    }
+}
+
+void uart_puthex(unsigned long long val) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    uart_puts("0x");
+    for (int i = (sizeof(val) * 2) - 1; i >= 0; i--) {
+        int nibble = (val >> (i * 4)) & 0xF;
+        uart_putc(hex_chars[nibble]);
+    }
+}
+
+static inline uint64_t safe_fdt64_ld(const fdt64_t *p)
+{
+    const volatile uint8_t *bp = (const volatile uint8_t *)p;
+    
+    // 检查是否8字节对齐
+    if (((uintptr_t)p & 7) == 0) {
+        // 对齐的情况，使用直接读取
+        uart_puts("aligned fdt64_ld\n");
+        return fdt64_ld(p);
+    } else {
+        // 非对齐的情况，逐字节读取   
+        uart_puts("unaligned fdt64_ld\n");     
+        return ((uint64_t)bp[0] << 56)
+            | ((uint64_t)bp[1] << 48)
+            | ((uint64_t)bp[2] << 40)
+            | ((uint64_t)bp[3] << 32)
+            | ((uint64_t)bp[4] << 24)
+            | ((uint64_t)bp[5] << 16)
+            | ((uint64_t)bp[6] << 8)
+            | bp[7];
+    }
+}
+
 int fdt_remove_node(void *fdt, const char *path)
 {
   int node = fdt_path_offset(fdt, path);
@@ -191,6 +245,41 @@ void fdt_set_memory(void *fdt, uint64_t region_num,
   {
     return;
   }
+}
+
+int fdt_get_all_mem_regions(void *fdt,
+                            struct region *out_regions,
+                            int max_regions)
+{
+  // uart_puts("in C fdt_get_all_mem_regions\n");
+  // uart_puts("fdt address: ");
+  // uart_puthex((unsigned long long)fdt);
+  // uart_puts("\n");
+  int len = 0;
+  int node;
+  node = fdt_node_offset_by_prop_value(fdt, 0, "device_type", "memory",
+                                      (int)strlen("memory") + 1);
+  
+  if (node < 0)
+  {
+    return -1;
+  }
+  const fdt64_t *prop = fdt_getprop(fdt, node, "reg", &len);
+  if (prop == NULL || len <= 0 || (len % (2 * sizeof(fdt64_t))) != 0)
+  {
+    return -1;
+  }
+  int region_num = len / (2 * sizeof(fdt64_t));
+  if (region_num > max_regions)
+  {
+    return -1;
+  }
+  for (int i = 0; i < region_num; ++i)
+  {
+    out_regions[i].ipa_start = safe_fdt64_ld(&prop[2 * i]);
+    out_regions[i].length = safe_fdt64_ld(&prop[2 * i + 1]);
+  }
+  return region_num;
 }
 
 void fdt_clear_initrd(void *fdt)

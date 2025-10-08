@@ -1,4 +1,7 @@
-#include <stdint.h>
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long uint64_t;
 
 // Note: this module assume
 //  1. template uses #size-cells = <0x2> and #address-cells = <0x2>
@@ -32,6 +35,15 @@ void fdt_set_initrd(void *fdt, uint32_t start, uint32_t end);
 
 void fdt_set_memory(void *fdt, uint64_t region_num,
                     const struct region *regions, const char *node_name);
+
+/**
+ * out_regions: buf which receives memory infos
+ * max_regions: max number of regions <out_regions> can hold
+ * return: the number of memory regions read, or -1 on error
+ */
+int fdt_get_all_mem_regions(void *fdt,
+                            struct region *out_regions,
+                            int max_regions);
 
 void fdt_clear_initrd(void *fdt);
 
