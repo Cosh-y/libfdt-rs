@@ -45,6 +45,19 @@ int fdt_get_all_mem_regions(void *fdt,
                             struct region *out_regions,
                             int max_regions);
 
+/**
+ * Read mpidr values from /cpus child nodes. Each cpu node stores its MPIDR
+ * in a 32-bit "reg" property. This function fills `out_mpidrs` with up to
+ * `max_cpus` mpidr values.
+ *
+ * Returns: number of CPUs read, or -1 on error.
+ */
+int fdt_get_all_cpu_mpidr(void *fdt, uint32_t *out_mpidrs, int max_cpus);
+
+uint64_t fdt_get_gicd_base(void *fdt);
+
+uint64_t fdt_get_gicr_base(void *fdt);
+
 void fdt_clear_initrd(void *fdt);
 
 int fdt_setup_gic(void *fdt, uint64_t gicd_addr, uint64_t gicc_addr,

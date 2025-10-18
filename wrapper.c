@@ -25,6 +25,21 @@ static inline void uart_puts(const char *s)
     }
 }
 
+static inline uint32_t safe_fdt32_ld(const fdt32_t *p)
+{
+  const volatile uint8_t *bp = (const volatile uint8_t *)p;
+  if (((uintptr_t)p & 3) == 0) {
+    return fdt32_to_cpu(*p);
+  } else {
+    /* unaligned read, FDT is big-endian */
+    uint32_t v = ((uint32_t)bp[0] << 24) |
+           ((uint32_t)bp[1] << 16) |
+           ((uint32_t)bp[2] << 8)  |
+           ((uint32_t)bp[3] << 0);
+    return v;
+  }
+}
+
 void uart_puthex(unsigned long long val) {
     const char hex_chars[] = "0123456789ABCDEF";
     uart_puts("0x");
@@ -41,11 +56,9 @@ static inline uint64_t safe_fdt64_ld(const fdt64_t *p)
     // 检查是否8字节对齐
     if (((uintptr_t)p & 7) == 0) {
         // 对齐的情况，使用直接读取
-        uart_puts("aligned fdt64_ld\n");
         return fdt64_ld(p);
     } else {
         // 非对齐的情况，逐字节读取   
-        uart_puts("unaligned fdt64_ld\n");     
         return ((uint64_t)bp[0] << 56)
             | ((uint64_t)bp[1] << 48)
             | ((uint64_t)bp[2] << 40)
@@ -280,6 +293,60 @@ int fdt_get_all_mem_regions(void *fdt,
     out_regions[i].length = safe_fdt64_ld(&prop[2 * i + 1]);
   }
   return region_num;
+}
+
+int fdt_get_all_cpu_mpidr(void *fdt, uint32_t *out_mpidrs, int max_cpus)
+{
+  if (max_cpus <= 0 || out_mpidrs == NULL)
+    return -1;
+
+  int cpus_node = fdt_path_offset(fdt, "/cpus");
+  if (cpus_node < 0)
+    return -1;
+
+  int sub = fdt_first_subnode(fdt, cpus_node);
+  int count = 0;
+  while (sub >= 0) {
+    int len = 0;
+    const fdt32_t *prop = fdt_getprop(fdt, sub, "reg", &len);
+    if (prop == NULL || len < (int)sizeof(fdt32_t)) {
+      sub = fdt_next_subnode(fdt, sub);
+      continue;
+    }
+
+    /* Use the first 32-bit cell as MPIDR */
+    uint32_t mpidr = safe_fdt32_ld(&prop[0]);
+
+    if (count < max_cpus) {
+      out_mpidrs[count++] = mpidr;
+    } else {
+      return -1;
+    }
+
+    sub = fdt_next_subnode(fdt, sub);
+  }
+
+  return count;
+}
+
+uint64_t fdt_get_gicd_base(void *fdt) {
+  int intc_node = fdt_path_offset(fdt, "/intc");
+  if (intc_node < 0) {
+    return -1;
+  }
+  int len = 0;
+  const fdt64_t *reg_prop = fdt_getprop(fdt, intc_node, "reg", &len);
+  return reg_prop ? safe_fdt64_ld(&reg_prop[0]) : -1;
+}
+
+uint64_t fdt_get_gicr_base(void *fdt) {
+  int intc_node = fdt_path_offset(fdt, "/intc");
+  if (intc_node < 0) {
+    return -1;
+  }
+  int len = 0;
+  const fdt64_t *reg_prop = fdt_getprop(fdt, intc_node, "reg", &len);
+  return reg_prop ? safe_fdt64_ld(&reg_prop[2]) : -1;
 }
 
 void fdt_clear_initrd(void *fdt)
